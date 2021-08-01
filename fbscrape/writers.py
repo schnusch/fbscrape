@@ -1,4 +1,5 @@
 import datetime
+from getpass import getuser
 import icalendar  # type: ignore
 import io
 import json
@@ -6,6 +7,7 @@ import logging
 import os
 import pathlib
 import pytz
+from socket import gethostname
 import subprocess
 import sys
 import tempfile
@@ -50,12 +52,15 @@ class IcsDirectory:
         return self
 
     def __exit__(self, type, value, traceback):
-        subprocess.run(['git', 'add', '-A'], cwd=self.directory,
-                       stdin=subprocess.DEVNULL,
-                       stdout=sys.stderr)
-        subprocess.run(['git', 'commit', '-m', '<message>'], cwd=self.directory,
-                       stdin=subprocess.DEVNULL,
-                       stdout=sys.stderr)
+        git = ['git',
+               '-c', 'user.name=fbscrape',
+               '-c', 'user.email=' + getuser() + '@' + gethostname()]
+        kwargs = dict(cwd   =self.directory,
+                      stdin =subprocess.DEVNULL,
+                      stdout=sys.stderr)
+        p = subprocess.run(git + ['add', '-A'], **kwargs)
+        if p.returncode == 0:
+            subprocess.run(git + ['commit', '-m', 'update events'], **kwargs)
 
     def _get_path(self, event: Union[str, icalendar.Event]) -> pathlib.Path:
         uid = event if isinstance(event, str) else event.decoded('uid').decode('ascii')

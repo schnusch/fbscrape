@@ -13,6 +13,8 @@ import sys
 import tempfile
 from typing import BinaryIO, Optional, Union
 
+from . import __version__
+
 
 class Writer:
     def __init__(self, fp: BinaryIO):
@@ -53,7 +55,7 @@ class IcsDirectory:
 
     def __exit__(self, type, value, traceback):
         git = ['git',
-               '-c', 'user.name=fbscrape',
+               '-c', 'user.name=fbscrape v' + __version__,
                '-c', 'user.email=' + getuser() + '@' + gethostname()]
         kwargs = dict(cwd   =self.directory,
                       stdin =subprocess.DEVNULL,
@@ -87,7 +89,7 @@ class IcsDirectory:
         with tempfile.NamedTemporaryFile(dir=self.directory) as tmp:
             cal = icalendar.Calendar()
             cal.add('version', '2.0')
-            cal.add('prodid',  '-//fbscrape')
+            cal.add('prodid',  '-//fbscrape v' + __version__)
             cal.add_component(vevent)
             tmp.write(cal.to_ical())
             tmp.flush()
@@ -107,7 +109,7 @@ class IcsWriter(Writer):
     def __enter__(self):
         self._cal = icalendar.Calendar()
         self._cal.add('version', '2.0')
-        self._cal.add('prodid',  '-//fbscrape')
+        self._cal.add('prodid',  '-//fbscrape v' + __version__)
         self._cal.add('method',  'PUBLISH')
         return super().__enter__()
 

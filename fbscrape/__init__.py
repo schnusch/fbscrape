@@ -37,7 +37,7 @@ from selenium.webdriver.remote.webdriver import WebDriver  # type: ignore
 from selenium.webdriver.support.ui import WebDriverWait  # type: ignore
 
 from .date import parse_date
-from .writers import IcsWriter, JsonWriter
+from .writers import IcsDirectory, IcsWriter, JsonWriter
 
 
 clubs = {
@@ -243,6 +243,9 @@ def main(argv: Optional[List[str]] = None):
                    metavar='<cookie file>',
                    required=True,
                    help="see format of the cookie file below")
+    p.add_argument('-d', '--directory',
+                   action='store_true',
+                   help="write events to separare iCalendar files in a directory")
     p.add_argument('-j', '--json',
                    dest='writer_class',
                    action='store_const',
@@ -263,12 +266,23 @@ def main(argv: Optional[List[str]] = None):
                    help="Facebook page or event URL")
     args = p.parse_args(argv)
 
-    logging.basicConfig(format='[%(asctime)s] %(levelname)-8s %(name)-13s %(message)s',
+    logging.basicConfig(format='[%(asctime)s] %(levelname)-8s %(name)-29s %(message)s',
                         level=args.verbose, stream=sys.stderr)
 
     if args.events and not args.pages:
         print(f'{sys.argv[0]}: no events given', file=sys.stderr)
         sys.exit(1)
+
+    if args.directory and args.out is None:
+        print(f'{sys.argv[0]}: -d/--directory requires -o/--out', file=sys.stderr)
+        sys.exit(1)
+
+    if args.directory:
+        # save us from refactoring
+        @contextmanager
+        def open_output(path, overwrite):
+            yield path
+        args.writer_class = IcsDirectory
 
     with open_output(args.out, overwrite=True) as out:
         with firefox_profile() as profile:

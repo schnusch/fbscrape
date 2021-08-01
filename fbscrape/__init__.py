@@ -23,6 +23,7 @@ import datetime
 import json  # type: ignore
 import locale
 import logging
+import os.path
 import re
 import shutil
 import sys
@@ -84,13 +85,17 @@ def firefox_driver(profile:       str,
                    headless:      bool          = True,
                    minimize:      bool          = False,
                    timeout:       Optional[int] = None,
-                   implicit_wait: Optional[int] = None) -> Iterator[Firefox]:
+                   implicit_wait: Optional[int] = None,
+                   log_path:      Optional[str] = None) -> Iterator[Firefox]:
     options = FirefoxOptions()
     if profile is not None:
         options.profile = profile
     if headless:
         options.add_argument('--headless')
-    driver = Firefox(options=options)
+    kwargs = {}
+    if log_path is not None:
+        kwargs['service_log_path'] = log_path
+    driver = Firefox(options=options, **kwargs)
     try:
         if minimize and not headless:
             driver.minimize_window()
@@ -260,6 +265,10 @@ def main(argv: Optional[List[str]] = None):
                    default=logging.INFO,
                    const=logging.DEBUG,
                    help="enable debug logging")
+    p.add_argument('--geckodriver-log',
+                   metavar='<path>',
+                   default=os.path.devnull,
+                   help="path to geckodriver's log file")
     p.add_argument('pages',
                    metavar='<page>',
                    nargs='*',
@@ -289,7 +298,8 @@ def main(argv: Optional[List[str]] = None):
             profile.set_preference('javascript.enabled', False)
             profile.set_preference('network.cookie.cookieBehavior', 1)
 
-            with firefox_driver(profile, headless=args.headless) as driver:
+            with firefox_driver(profile, headless=args.headless,
+                                log_path=args.geckodriver_log) as driver:
                 driver.get('https://mbasic.facebook.com/')
                 load_cookies(driver, args.cookies)
 

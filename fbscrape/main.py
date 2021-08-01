@@ -27,7 +27,7 @@ import os.path
 import re
 import shutil
 import sys
-from typing import cast, Any, BinaryIO, Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 from selenium.common.exceptions import NoSuchElementException  # type: ignore
@@ -38,7 +38,7 @@ from selenium.webdriver.remote.webdriver import WebDriver  # type: ignore
 from selenium.webdriver.support.ui import WebDriverWait  # type: ignore
 
 from .date import parse_date
-from .writers import IcsDirectory, IcsWriter, JsonWriter
+from .storage import StorageDirectory
 
 
 clubs = {
@@ -57,18 +57,6 @@ clubs = {
 }
 
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def open_output(path:      Optional[str] = None,
-                overwrite: bool          = False) -> Iterator[BinaryIO]:
-    if path is None:
-        out = cast(Any, sys.stdout).detach()
-        sys.stdout = sys.stderr
-        yield out
-    else:
-        with open(path, 'wb' if overwrite else 'xb') as fp:
-            yield cast(BinaryIO, fp)
 
 
 @contextmanager
@@ -248,17 +236,9 @@ def main(argv: Optional[List[str]] = None):
                    metavar='<cookie file>',
                    required=True,
                    help="see format of the cookie file below")
-    p.add_argument('-d', '--directory',
-                   action='store_true',
-                   help="write events to separare iCalendar files in a directory")
-    p.add_argument('-j', '--json',
-                   dest='writer_class',
-                   action='store_const',
-                   default=IcsWriter,
-                   const=JsonWriter,
-                   help="write events as a JSON array instead of iCalendar")
     p.add_argument('-o', '--out',
                    metavar='<out>',
+                   required=True,
                    help="write to <out> instead of stdout")
     p.add_argument('-v', '--verbose',
                    action='store_const',
@@ -272,7 +252,9 @@ def main(argv: Optional[List[str]] = None):
     p.add_argument('pages',
                    metavar='<page>',
                    nargs='*',
-                   help="Facebook page or event URL")
+                   help="Facebook page or event URL, if a relative URL is "
+                        "given it is resolved relative to "
+                        "https://mbasic.facebook.com/")
     args = p.parse_args(argv)
 
     logging.basicConfig(format='[%(asctime)s] %(levelname)-8s %(name)-29s %(message)s',
@@ -282,48 +264,36 @@ def main(argv: Optional[List[str]] = None):
         print(f'{sys.argv[0]}: no events given', file=sys.stderr)
         sys.exit(1)
 
-    if args.directory and args.out is None:
-        print(f'{sys.argv[0]}: -d/--directory requires -o/--out', file=sys.stderr)
-        sys.exit(1)
+    with firefox_profile() as profile:
+        profile.set_preference('javascript.enabled', False)
+        profile.set_preference('network.cookie.cookieBehavior', 1)
 
-    if args.directory:
-        # save us from refactoring
-        @contextmanager
-        def open_output(path, overwrite):
-            yield path
-        args.writer_class = IcsDirectory
+        with firefox_driver(profile, headless=args.headless,
+                            log_path=args.geckodriver_log) as driver:
+            driver.get('https://mbasic.facebook.com/')
+            load_cookies(driver, args.cookies)
 
-    with open_output(args.out, overwrite=True) as out:
-        with firefox_profile() as profile:
-            profile.set_preference('javascript.enabled', False)
-            profile.set_preference('network.cookie.cookieBehavior', 1)
+            if args.events:
+                error  = False
+                event_urls = args.pages
+            else:
+                error, event_urls = collect_events(driver, args.pages)
 
-            with firefox_driver(profile, headless=args.headless,
-                                log_path=args.geckodriver_log) as driver:
-                driver.get('https://mbasic.facebook.com/')
-                load_cookies(driver, args.cookies)
-
-                if args.events:
-                    error  = False
-                    event_urls = args.pages
-                else:
-                    error, event_urls = collect_events(driver, args.pages)
-
-                failed_events = 0
-                with args.writer_class(out) as w:
-                    for url in event_urls:
-                        try:
-                            event = get_event(driver, url)
-                        except Exception:
-                            logger.exception('cannot extract event info on %s', url)
-                            error = True
-                            failed_events += 1
-                        else:
-                            logger.info('extracted %s at %s, %s',
-                                        event.title,
-                                        event.location,
-                                        event.start.strftime('%F %T%z'))
-                            w.write_event(event)
+            failed_events = 0
+            with StorageDirectory(args.out) as d:
+                for url in event_urls:
+                    try:
+                        event = get_event(driver, url)
+                    except Exception:
+                        logger.exception('cannot extract event info on %s', url)
+                        error = True
+                        failed_events += 1
+                    else:
+                        logger.info('extracted %s at %s, %s',
+                                    event.title,
+                                    event.location,
+                                    event.start.strftime('%F %T%z'))
+                        d.write_event(event)
 
     if failed_events > 0:
         logger.error('failed to scrape %d of %d events', failed_events,

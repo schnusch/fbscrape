@@ -1,8 +1,6 @@
 import datetime
 from getpass import getuser
 import icalendar  # type: ignore
-import io
-import json
 import logging
 import os
 import pathlib
@@ -11,20 +9,9 @@ from socket import gethostname
 import subprocess
 import sys
 import tempfile
-from typing import BinaryIO, Optional, Union
+from typing import Union
 
 from . import __version__
-
-
-class Writer:
-    def __init__(self, fp: BinaryIO):
-        self._fp = fp
-
-    def __enter__(self):
-        return self
-
-    def write_event(self, event):
-        raise NotImplementedError
 
 
 def compare_vevents(event1: icalendar.Event, event2: icalendar.Event) -> bool:
@@ -44,7 +31,25 @@ def generate_uid(url: str) -> str:
     return url[15:].replace('/', '-')
 
 
-class IcsDirectory:
+def create_vevent(event) -> icalendar.Event:
+    vevent = icalendar.Event()
+    vevent.add('uid',      generate_uid(event.url))
+    vevent.add('url',      event.url)
+    vevent.add('dtstamp',  datetime.datetime.now(datetime.timezone.utc))
+    # For some reason when using datetime.timezone.utc icalendar adds the
+    # attribute TZID (which is not allowed for timestamps in UTC).
+    # By using pytz.utc this is avoided.
+    # For some reason it's not a problem in the above line.
+    vevent.add('dtstart',  event.start.astimezone(pytz.utc))
+    vevent.add('dtend',    event.end.astimezone(pytz.utc))
+    vevent.add('summary',  event.title)
+    vevent.add('location', event.location)
+    if event.details:
+        vevent.add('description', event.details)
+    return vevent
+
+
+class StorageDirectory:
     logger = logging.getLogger(__name__ + '.IcsDirectory')
 
     def __init__(self, directory: str):
@@ -83,7 +88,8 @@ class IcsDirectory:
                              event.decoded('uid').decode('ascii'))
 
     def write_event(self, event):
-        vevent = IcsWriter.create_vevent(event)
+        vevent = create_vevent(event)
+        del event
         path = self._get_path(vevent)
         self._fix_dtstamp(vevent)
         with tempfile.NamedTemporaryFile(dir=self.directory) as tmp:
@@ -103,61 +109,3 @@ class IcsDirectory:
             data = fp.read()
         cal = icalendar.Event.from_ical(data)
         return cal.subcomponents[0]
-
-
-class IcsWriter(Writer):
-    def __enter__(self):
-        self._cal = icalendar.Calendar()
-        self._cal.add('version', '2.0')
-        self._cal.add('prodid',  '-//fbscrape v' + __version__)
-        self._cal.add('method',  'PUBLISH')
-        return super().__enter__()
-
-    @staticmethod
-    def create_vevent(event) -> icalendar.Event:
-        vevent = icalendar.Event()
-        vevent.add('uid',      generate_uid(event.url))
-        vevent.add('url',      event.url)
-        vevent.add('dtstamp',  datetime.datetime.now(datetime.timezone.utc))
-        # For some reason when using datetime.timezone.utc icalendar adds the
-        # attribute TZID (which is not allowed for timestamps in UTC).
-        # By using pytz.utc this is avoided.
-        # For some reason it's not a problem in the above line.
-        vevent.add('dtstart',  event.start.astimezone(pytz.utc))
-        vevent.add('dtend',    event.end.astimezone(pytz.utc))
-        vevent.add('summary',  event.title)
-        vevent.add('location', event.location)
-        if event.details:
-            vevent.add('description', event.details)
-        return vevent
-
-    def write_event(self, event):
-        vevent = self.create_vevent(event)
-        self._cal.add_component(vevent)
-
-    def __exit__(self, type, value, traceback):
-        self._fp.write(self._cal.to_ical())
-
-
-class JsonWriter(Writer):
-    def __enter__(self):
-        self._events = []
-        return super().__enter__()
-
-    def write_event(self, event):
-        event_dict = {
-            'url':      event.url,
-            'title':    event.title,
-            'image':    event.image,
-            'start':    int(event.start.timestamp()),
-            'end':      int(event.end.timestamp()),
-            'location': event.location,
-        }
-        if event.details:
-            event_dict['details'] = event.details
-        self._events.append(event_dict)
-
-    def __exit__(self, type, value, traceback):
-        out = io.TextIOWrapper(self._fp, encoding='utf-8', newline='\n')
-        json.dump(self._events, out, indent='\t', separators=(',', ': '))
-        out.write('\n')

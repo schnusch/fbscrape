@@ -1,4 +1,3 @@
-import base64
 import datetime
 from getpass import getuser
 import icalendar  # type: ignore
@@ -17,7 +16,7 @@ from . import __version__
 
 def compare_vevents(event1: icalendar.Event, event2: icalendar.Event) -> bool:
     for k in (event1.keys() | event2.keys()):
-        if k.lower() in ('dtstamp', 'attachment'):
+        if k.lower() == 'dtstamp':
             pass
         elif k in event1 and k in event2:
             if event1.decoded(k) != event2.decoded(k):
@@ -47,12 +46,6 @@ def create_vevent(event) -> icalendar.Event:
     vevent.add('location', event.location)
     if event.details:
         vevent.add('description', event.details)
-    vevent.add('attachment', base64.b64encode(event.screenshot).decode('ascii'),
-               parameters={
-                   'fmttype':  'image/png',
-                   'encoding': 'BASE64',
-                   'value':    'BINARY',
-               })
     return vevent
 
 
@@ -80,26 +73,26 @@ class StorageDirectory:
         uid = event if isinstance(event, str) else event.decoded('uid').decode('ascii')
         return self.directory / (uid + '.ics')
 
-    def _fix_dtstamp(self, event: icalendar.Event):
+    def _fix_dtstamp(self, event: icalendar.Event) -> bool:
         try:
             old_event = self.read_event(event.decoded('uid').decode('ascii'))
         except (FileNotFoundError, ValueError):
             self.logger.info('new event %r',
                              event.decoded('uid').decode('ascii'))
-            return
+            return False
         if compare_vevents(event, old_event):
             # the event content did not change so do we so not change DTSTAMP
             # so the file contents stay the same
             event['dtstamp'] = old_event['dtstamp']
-            event['attachment'] = old_event['attachment']
             self.logger.info('event %r did not change, using old DTSSTAMP',
                              event.decoded('uid').decode('ascii'))
+            return True
+        return False
 
     def write_event(self, event):
         vevent = create_vevent(event)
-        del event
         path = self._get_path(vevent)
-        self._fix_dtstamp(vevent)
+        changed = not self._fix_dtstamp(vevent)
         with tempfile.NamedTemporaryFile(dir=self.directory) as tmp:
             cal = icalendar.Calendar()
             cal.add('version', '2.0')
@@ -111,6 +104,12 @@ class StorageDirectory:
             tmp._closer.delete = False
             self.logger.info('wrote event %r',
                              vevent.decoded('uid').decode('ascii'))
+        if changed:
+            with tempfile.NamedTemporaryFile(dir=self.directory) as tmp:
+                tmp.write(event.screenshot)
+                tmp.flush()
+                os.rename(tmp.name, str(path)[:-3] + 'png')
+                tmp._closer.delete = False
 
     def read_event(self, uid: str) -> icalendar.Event:
         with open(self._get_path(uid), 'rb') as fp:

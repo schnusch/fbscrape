@@ -171,13 +171,14 @@ def collect_events(driver: WebDriver,
 
 @dataclass
 class FBEvent:
-    url:      str
-    title:    str
-    start:    datetime.datetime
-    end:      datetime.datetime
-    location: str
-    details:  Optional[str] = None
-    image:    Optional[str] = None
+    url:        str
+    title:      str
+    start:      datetime.datetime
+    end:        datetime.datetime
+    location:   str
+    details:    Optional[str] = None
+    image:      Optional[str] = None
+    screenshot: Optional[bytes] = None
 
 
 def get_event(driver: WebDriver,
@@ -186,19 +187,21 @@ def get_event(driver: WebDriver,
     driver.get(url)
     bypass_cookie_consent(driver)
 
-    title         = driver.find_element_by_tag_name('h1')
-    event_summary = driver.find_element_by_id('event_summary')
+    root          = driver.find_element_by_css_selector('#root > table')
+    title         = root.find_element_by_tag_name('h1')
+    event_summary = root.find_element_by_id('event_summary')
 
     infos = event_summary.find_elements_by_css_selector('dt div')
     start, end = parse_date(infos[0].text)
     location = infos[1].text if len(infos) > 1 else None
 
     ev = FBEvent(
-        url      = url,
-        title    = title.text,
-        start    = start,
-        end      = end,
-        location = location,
+        url        = url,
+        title      = title.text,
+        start      = start,
+        end        = end,
+        location   = location,
+        screenshot = root.screenshot_as_png,
     )
 
     try:
@@ -208,7 +211,7 @@ def get_event(driver: WebDriver,
         pass
 
     try:
-        image = driver.find_element_by_css_selector('#event_header img')
+        image = root.find_element_by_css_selector('#event_header img')
         ev.image = image.get_property('src')
     except NoSuchElementException:
         pass

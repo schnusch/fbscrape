@@ -1,3 +1,4 @@
+import base64
 import datetime
 from getpass import getuser
 import icalendar  # type: ignore
@@ -16,7 +17,7 @@ from . import __version__
 
 def compare_vevents(event1: icalendar.Event, event2: icalendar.Event) -> bool:
     for k in (event1.keys() | event2.keys()):
-        if k.lower() == 'dtstamp':
+        if k.lower() in ('dtstamp', 'attachment'):
             pass
         elif k in event1 and k in event2:
             if event1.decoded(k) != event2.decoded(k):
@@ -46,6 +47,12 @@ def create_vevent(event) -> icalendar.Event:
     vevent.add('location', event.location)
     if event.details:
         vevent.add('description', event.details)
+    vevent.add('attachment', base64.b64encode(event.screenshot).decode('ascii'),
+               parameters={
+                   'fmttype':  'image/png',
+                   'encoding': 'BASE64',
+                   'value':    'BINARY',
+               })
     return vevent
 
 
@@ -84,6 +91,7 @@ class StorageDirectory:
             # the event content did not change so do we so not change DTSTAMP
             # so the file contents stay the same
             event['dtstamp'] = old_event['dtstamp']
+            event['attachment'] = old_event['attachment']
             self.logger.info('event %r did not change, using old DTSSTAMP',
                              event.decoded('uid').decode('ascii'))
 

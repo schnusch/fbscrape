@@ -34,7 +34,7 @@ def parse_date_part(m: re.Match) -> datetime.date:
         off = 1
     elif not m['date']:
         today = datetime.date.today().weekday()
-        then  = datetime.datetime.strptime(dayofweek, '%A').weekday()
+        then  = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'].index(dayofweek)
         off   = then - today
         while off <= 0:
             off += 7

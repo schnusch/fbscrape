@@ -9,9 +9,10 @@ from socket import gethostname
 import subprocess
 import sys
 import tempfile
-from typing import Union
+from typing import List, Union
 
 from . import __version__
+from .markdown import write_readme
 
 
 def compare_vevents(event1: icalendar.Event, event2: icalendar.Event) -> bool:
@@ -54,11 +55,15 @@ class StorageDirectory:
 
     def __init__(self, directory: str):
         self.directory = pathlib.Path(directory)
+        self.vevents = []  # type: List[icalendar.Event]
 
     def __enter__(self):
+        self.vevents = []
         return self
 
     def __exit__(self, type, value, traceback):
+        with open(self.directory / 'README.md', 'wb') as fp:
+            write_readme(fp, self.vevents)
         git = ['git',
                '-c', 'user.name=fbscrape v' + __version__,
                '-c', 'user.email=' + getuser() + '@' + gethostname()]
@@ -89,7 +94,7 @@ class StorageDirectory:
             return True
         return False
 
-    def write_event(self, event):
+    def write_event(self, event) -> icalendar.Event:
         vevent = create_vevent(event)
         path = self._get_path(vevent)
         changed = not self._fix_dtstamp(vevent)
@@ -110,6 +115,7 @@ class StorageDirectory:
                 tmp.flush()
                 os.rename(tmp.name, str(path)[:-3] + 'png')
                 tmp._closer.delete = False
+        self.vevents.append(vevent)
 
     def read_event(self, uid: str) -> icalendar.Event:
         with open(self._get_path(uid), 'rb') as fp:

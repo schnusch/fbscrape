@@ -1,12 +1,9 @@
 import datetime
 import icalendar  # type: ignore
 import json
-import logging
+import re
 import subprocess
 from typing import Any, List, BinaryIO, Union
-
-
-logger = logging.getLogger(__name__)
 
 
 class PandocBlock(dict):
@@ -79,11 +76,8 @@ def pandoc_para(blocks: List[PandocBlock]) -> PandocBlock:
     return PandocBlock('Para', blocks)
 
 
-def pandoc_codeblock(text: Union[str, bytes]) -> PandocBlock:
-    if isinstance(text, bytes):
-        text = text.decode('utf-8')
-    return PandocBlock('CodeBlock', (['', [], []],
-                                     text))
+def pandoc_blockquote(blocks: List[PandocBlock]) -> PandocBlock:
+    return PandocBlock('BlockQuote', blocks)
 
 
 def format_time(t: datetime.datetime) -> str:
@@ -91,7 +85,15 @@ def format_time(t: datetime.datetime) -> str:
 
 
 def pandoc_blocks_from_event(event: icalendar.Event) -> List[PandocBlock]:
-    screenshot = event.decoded('uid').decode('ascii') + '.png'
+    screenshot  = event.decoded('uid').decode('ascii') + '.png'
+    description = event.decoded('description').decode('utf-8')
+    paragraphs  = []  # type: List[PandocBlock]
+    for paragraph in re.split(r'\n{2,}', description):
+        blocks = []  # type: List[PandocBlock]
+        for line in paragraph.splitlines():
+            blocks.append(pandoc_str(line))
+            blocks.append(pandoc_linebreak())
+        paragraphs.append(pandoc_para(blocks[:-1]))
     return [
         pandoc_header(3, event.decoded('summary')),
         pandoc_para([
@@ -119,7 +121,7 @@ def pandoc_blocks_from_event(event: icalendar.Event) -> List[PandocBlock]:
             pandoc_space(),
             pandoc_link(screenshot, screenshot),
         ]),
-        pandoc_codeblock(event.decoded('description')),
+        pandoc_blockquote(paragraphs),
     ]
 
 

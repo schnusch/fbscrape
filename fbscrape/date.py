@@ -23,7 +23,10 @@ def pad_utc_offset(m: re.Match) -> str:
 
 
 def fix_utc_offset(t: str) -> str:
-    return utc_regex.sub(pad_utc_offset, t)
+    if utc_regex.search(t):
+        return utc_regex.sub(pad_utc_offset, t)
+    else:
+        return t + time.strftime(' UTC%z')
 
 
 def parse_date_part(m: re.Match) -> datetime.date:
